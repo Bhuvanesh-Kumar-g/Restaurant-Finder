@@ -1,6 +1,3 @@
-Here’s a properly formatted `README.md` for your **AI-Powered Restaurant Finder** project, tailored for GitHub with appropriate Markdown syntax, headings, emojis, and code formatting:
-
----
 
 # 🍽️ AI-Powered Restaurant Finder 🗺️✨
 
