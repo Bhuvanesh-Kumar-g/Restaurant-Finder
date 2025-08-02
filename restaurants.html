@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurant Recommendation System with Leaflet & Gemini</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Leaflet.js CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <!-- Leaflet Routing Machine CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        #map {
+            z-index: 1; /* Ensure map is behind modal */
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        
+        /* Styles for the Gemini modal */
+        #gemini-modal-overlay { transition: opacity 0.3s ease; }
+        #gemini-modal { transition: transform 0.3s ease, opacity 0.3s ease; }
+        .gemini-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #4f46e5;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Hide the default routing instructions panel */
+        .leaflet-routing-container {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-4xl">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-900">Find Your Next Meal</h1>
+            <p class="text-lg text-gray-600 mt-2">Discover restaurants nearby or on your next road trip ✨</p>
+        </header>
+
+        <main>
+            <div class="bg-white p-6 rounded-2xl shadow-lg mb-8">
+                <!-- Tab Controls -->
+                <div class="flex border-b mb-6">
+                    <button id="nearby-tab-btn" class="px-4 py-2 font-semibold border-b-2 border-indigo-600 text-indigo-600">Nearby</button>
+                    <button id="road-trip-tab-btn" class="px-4 py-2 font-semibold text-gray-500">Road Trip</button>
+                </div>
+
+                <!-- Nearby Search Form -->
+                <div id="nearby-form">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="col-span-1 md:col-span-2">
+                            <label for="location-input" class="block text-sm font-medium text-gray-700 mb-1">Your Location</label>
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <input type="text" id="location-input" placeholder="Enter an address or landmark" class="flex-grow w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                                <button id="gps-button" class="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition flex items-center justify-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" /></svg>
+                                    Use GPS
+                                </button>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="radius-select" class="block text-sm font-medium text-gray-700 mb-1">Search Radius</label>
+                            <select id="radius-select" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                                <option value="1000">1 km</option>
+                                <option value="2000" selected>2 km</option>
+                                <option value="5000">5 km</option>
+                                <option value="10000">10 km</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="results-select" class="block text-sm font-medium text-gray-700 mb-1">Number of Results</label>
+                            <select id="results-select" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                                <option value="5" selected>5 Results</option>
+                                <option value="10">10 Results</option>
+                                <option value="20">20 Results</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mt-6">
+                        <button id="find-restaurants-btn" class="w-full py-3 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition text-lg">
+                            Find Nearby Restaurants
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Road Trip Form -->
+                <div id="road-trip-form" class="hidden">
+                    <div class="grid grid-cols-1 gap-6">
+                        <div>
+                            <label for="start-location-input" class="block text-sm font-medium text-gray-700 mb-1">Start</label>
+                            <input type="text" id="start-location-input" placeholder="Enter start location" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label for="end-location-input" class="block text-sm font-medium text-gray-700 mb-1">End</label>
+                            <input type="text" id="end-location-input" placeholder="Enter end location" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                    </div>
+                     <div class="mt-6 space-y-4">
+                        <button id="plan-route-btn" class="w-full py-3 bg-blue-500 text-white font-bold rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition text-lg">
+                            Plan Route
+                        </button>
+                        <div id="on-route-controls" class="hidden space-y-4 border-t pt-4 mt-4">
+                            <div>
+                                <label for="current-location-input" class="block text-sm font-medium text-gray-700 mb-1">Your Current Area (e.g., a city name)</label>
+                                <input type="text" id="current-location-input" placeholder="Enter city/town or leave blank for GPS" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <button id="find-nearby-on-route-btn" class="w-full py-3 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition text-lg">
+                                Find Food Near Me on Route
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Gemini "Help Me Decide" Button Container -->
+            <div id="gemini-button-container" class="text-center my-6 hidden">
+                 <button id="gemini-decide-btn" class="px-6 py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-bold rounded-lg hover:from-purple-600 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition text-lg shadow-lg">
+                    ✨ Help Me Decide
+                </button>
+            </div>
+
+            <!-- Map and Results Container -->
+            <div id="results-container" class="space-y-6">
+                 <div id="map" class="w-full h-96 bg-gray-200 rounded-2xl shadow-md hidden"></div>
+                 <div id="restaurants-list" class="space-y-4"></div>
+            </div>
+            
+            <!-- Message/Loader Area -->
+            <div id="message-area" class="text-center p-6 text-gray-500"></div>
+        </main>
+    </div>
+
+    <!-- Gemini Recommendation Modal -->
+    <div id="gemini-modal-overlay" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden z-50">
+        <div id="gemini-modal" class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 transform scale-95 opacity-0">
+            <div class="flex justify-between items-start mb-4">
+                <h2 class="text-2xl font-bold text-gray-900">Gemini's Suggestion ✨</h2>
+                <button id="gemini-close-btn" class="text-gray-400 hover:text-gray-600 text-3xl leading-none">&times;</button>
+            </div>
+            <div id="gemini-response-content" class="text-gray-700 space-y-4"></div>
+        </div>
+    </div>
+
+    <!-- Leaflet.js & Plugins -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+    <script>
+        // --- API Key Configuration ---
+        const GEMINI_API_KEY = ""; 
+
+        // --- DOM Element References ---
+        const nearbyTabBtn = document.getElementById('nearby-tab-btn');
+        const roadTripTabBtn = document.getElementById('road-trip-tab-btn');
+        const nearbyForm = document.getElementById('nearby-form');
+        const roadTripForm = document.getElementById('road-trip-form');
+        
+        const locationInput = document.getElementById('location-input');
+        const gpsButton = document.getElementById('gps-button');
+        const radiusSelect = document.getElementById('radius-select');
+        const resultsSelect = document.getElementById('results-select');
+        const findButton = document.getElementById('find-restaurants-btn');
+
+        const startLocationInput = document.getElementById('start-location-input');
+        const endLocationInput = document.getElementById('end-location-input');
+        const planRouteBtn = document.getElementById('plan-route-btn');
+        const onRouteControls = document.getElementById('on-route-controls');
+        const currentLocationInput = document.getElementById('current-location-input');
+        const findNearbyOnRouteBtn = document.getElementById('find-nearby-on-route-btn');
+
+        const restaurantsList = document.getElementById('restaurants-list');
+        const mapContainer = document.getElementById('map');
+        const messageArea = document.getElementById('message-area');
+        const geminiButtonContainer = document.getElementById('gemini-button-container');
+        const geminiDecideBtn = document.getElementById('gemini-decide-btn');
+        const geminiModalOverlay = document.getElementById('gemini-modal-overlay');
+        const geminiModal = document.getElementById('gemini-modal');
+        const geminiResponseContent = document.getElementById('gemini-response-content');
+        const geminiCloseBtn = document.getElementById('gemini-close-btn');
+
+        // --- State Variables ---
+        let map;
+        let userMarker;
+        let restaurantMarkers = L.layerGroup();
+        let radiusCircle;
+        let routingControl;
+        let routeCoordinates = [];
+        let topPlacesList = [];
+
+        // --- Initialization ---
+        function initMap() {
+            const defaultLocation = [12.9716, 77.5946]; // Bengaluru
+            map = L.map(mapContainer).setView(defaultLocation, 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+            showMessage("Map initialized. Select a search mode.");
+        }
+
+        // --- Event Listeners ---
+        nearbyTabBtn.addEventListener('click', () => switchTab('nearby'));
+        roadTripTabBtn.addEventListener('click', () => switchTab('road-trip'));
+        gpsButton.addEventListener('click', () => getUserLocation());
+        findButton.addEventListener('click', findNearbyRestaurants);
+        planRouteBtn.addEventListener('click', planRoute);
+        findNearbyOnRouteBtn.addEventListener('click', findFoodNearbyOnRoute);
+        geminiDecideBtn.addEventListener('click', getGeminiRecommendation);
+        geminiCloseBtn.addEventListener('click', hideGeminiModal);
+        geminiModalOverlay.addEventListener('click', (e) => {
+            if (e.target === geminiModalOverlay) hideGeminiModal();
+        });
+        
+        // --- UI Functions ---
+        function switchTab(tab) {
+            if (tab === 'nearby') {
+                nearbyTabBtn.classList.add('border-indigo-600', 'text-indigo-600');
+                nearbyTabBtn.classList.remove('text-gray-500');
+                roadTripTabBtn.classList.remove('border-indigo-600', 'text-indigo-600');
+                roadTripTabBtn.classList.add('text-gray-500');
+                nearbyForm.classList.remove('hidden');
+                roadTripForm.classList.add('hidden');
+            } else {
+                roadTripTabBtn.classList.add('border-indigo-600', 'text-indigo-600');
+                roadTripTabBtn.classList.remove('text-gray-500');
+                nearbyTabBtn.classList.remove('border-indigo-600', 'text-indigo-600');
+                nearbyTabBtn.classList.add('text-gray-500');
+                roadTripForm.classList.remove('hidden');
+                nearbyForm.classList.add('hidden');
+            }
+            clearAll(); 
+        }
+
+        // --- Robust Fetching & Error Handling ---
+        function checkNetworkStatus() {
+            if (!navigator.onLine) {
+                showMessage('No internet connection detected. Please check your network.', true);
+                return false;
+            }
+            return true;
+        }
+
+        async function fetchWithTimeout(url, options = {}, timeout = 8000) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            try {
+                const response = await fetch(url, { ...options, signal: controller.signal });
+                clearTimeout(timeoutId);
+                return response;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error.name === 'AbortError') {
+                    throw new Error('Request timed out');
+                }
+                throw error;
+            }
+        }
+
+        function handleFetchError(error, context) {
+            let userMessage = '';
+            if (error.message.includes('Failed to fetch')) {
+                userMessage = `Network issue. Please check your internet connection.`;
+            } else if (error.message.includes('timed out')) {
+                userMessage = `Request timed out. The ${context} service may be busy. Please try again.`;
+            } else {
+                userMessage = `Unable to load ${context} data. Please try again later.`;
+            }
+            showMessage(userMessage, true);
+        }
+
+        async function geocodeWithFallback(query) {
+            const apis = [
+                `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`,
+                `https://geocode.maps.co/search?q=${encodeURIComponent(query)}`
+            ];
+            for (const apiUrl of apis) {
+                try {
+                    const response = await fetchWithTimeout(apiUrl);
+                    if (!response.ok) continue;
+                    const data = await response.json();
+                    if (data && data.length > 0) {
+                        const result = data[0];
+                        return {
+                            lat: parseFloat(result.lat),
+                            lng: parseFloat(result.lon || result.lng),
+                            bbox: result.boundingbox ? result.boundingbox.map(p => parseFloat(p)) : null
+                        };
+                    }
+                } catch (error) {
+                    console.warn(`Geocoding API failed: ${apiUrl}`, error);
+                    continue;
+                }
+            }
+            throw new Error(`Could not find location: ${query}`);
+        }
+
+        // --- Geocoding & User Location ---
+        function getUserLocation(onSuccess, onError) {
+            if (!checkNetworkStatus()) return;
+            if (navigator.geolocation) {
+                showMessage("Getting your location...", false);
+                navigator.geolocation.getCurrentPosition(
+                    async position => {
+                        const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
+                        if (onSuccess && typeof onSuccess === 'function') {
+                            onSuccess(pos);
+                        } else {
+                             try {
+                                const response = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`);
+                                const data = await response.json();
+                                locationInput.value = data.display_name || `Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
+                                showMessage("Location found! Click 'Find Restaurants'.", false);
+                             } catch (error) {
+                                handleFetchError(error, 'location');
+                             }
+                        }
+                    }, 
+                    () => {
+                        handleLocationError(true);
+                        if (onError && typeof onError === 'function') onError();
+                    }
+                );
+            } else {
+                handleLocationError(false);
+                if (onError && typeof onError === 'function') onError();
+            }
+        }
+        
+        function handleLocationError(browserHasFeature) {
+            const message = browserHasFeature ? 'Error: The Geolocation service failed.' : 'Error: Your browser doesn\'t support geolocation.';
+            showMessage(message, true);
+        }
+
+        // --- Nearby Mode ---
+        async function findNearbyRestaurants() {
+            if (!checkNetworkStatus()) return;
+            const locationQuery = locationInput.value;
+            if (!locationQuery) {
+                showMessage("Please enter a location or use GPS.", true);
+                return;
+            }
+            clearAll();
+            showMessage("Searching for your location...", false);
+            try {
+                const location = await geocodeWithFallback(locationQuery);
+                mapContainer.classList.remove('hidden');
+                setTimeout(() => map.invalidateSize(), 10); 
+                
+                map.setView([location.lat, location.lng], 14);
+                userMarker = L.marker([location.lat, location.lng]).addTo(map).bindPopup('<b>Your Location</b>').openPopup();
+                
+                const radius = parseInt(radiusSelect.value, 10);
+                radiusCircle = L.circle([location.lat, location.lng], { radius, color: '#4f46e5', weight: 2, fillColor: '#4f46e5', fillOpacity: 0.1 }).addTo(map);
+                
+                map.fitBounds(radiusCircle.getBounds(), {padding: [20, 20]});
+
+                await searchAndDisplayRestaurants([L.latLng(location.lat, location.lng)], 'nearby', userMarker.getLatLng());
+            } catch (error) {
+                handleFetchError(error, 'location');
+            }
+        }
+
+        // --- Road Trip Mode ---
+        async function planRoute() {
+            if (!checkNetworkStatus()) return;
+            const startQuery = startLocationInput.value;
+            const endQuery = endLocationInput.value;
+            if (!startQuery || !endQuery) {
+                showMessage("Please enter both a start and end location.", true);
+                return;
+            }
+            clearAll();
+            showMessage("Calculating your route...", false);
+
+            try {
+                const [startPoint, endPoint] = await Promise.all([geocodeWithFallback(startQuery), geocodeWithFallback(endQuery)]);
+                
+                mapContainer.classList.remove('hidden');
+                setTimeout(() => map.invalidateSize(), 10);
+
+                routingControl = L.Routing.control({
+                    waypoints: [ L.latLng(startPoint.lat, startPoint.lng), L.latLng(endPoint.lat, endPoint.lng) ],
+                    router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
+                    routeWhileDragging: false,
+                    addWaypoints: false,
+                    createMarker: function() { return null; }
+                }).addTo(map);
+
+                routingControl.on('routesfound', function(e) {
+                    routeCoordinates = e.routes[0].coordinates;
+                    showMessage("Route planned. Enter your current location or use GPS to find food.", false);
+                    onRouteControls.classList.remove('hidden');
+                });
+                
+                routingControl.on('routingerror', function(e) {
+                    console.error("Routing Error:", e.error);
+                    handleFetchError(new Error(e.error.message), 'route');
+                });
+
+            } catch (error) {
+                handleFetchError(error, 'location');
+            }
+        }
+        
+        async function findFoodNearbyOnRoute() {
+            if (routeCoordinates.length === 0) {
+                showMessage("Please plan a route first.", true);
+                return;
+            }
+            
+            restaurantMarkers.clearLayers();
+            restaurantsList.innerHTML = '';
+            geminiButtonContainer.classList.add('hidden');
+
+            const currentLocationQuery = currentLocationInput.value;
+
+            if (currentLocationQuery) {
+                try {
+                    if (!checkNetworkStatus()) return;
+                    showMessage("Finding your area on the route...", false);
+                    const locationData = await geocodeWithFallback(currentLocationQuery);
+                    
+                    if (!locationData.bbox) {
+                        await handleSearchFromGpsPosition(locationData); 
+                        return;
+                    }
+
+                    const routeSegment = filterRouteSegment(routeCoordinates, locationData.bbox);
+                    if (routeSegment.length === 0) {
+                        showMessage(`Your route does not seem to pass through ${currentLocationQuery}.`, true);
+                        return;
+                    }
+                    
+                    const referenceLatLng = L.latLng(locationData.lat, locationData.lng);
+                    if (userMarker) map.removeLayer(userMarker);
+                    userMarker = L.marker(referenceLatLng).addTo(map).bindPopup(`<b>Area: ${currentLocationQuery}</b>`).openPopup();
+                    
+                    await searchAndDisplayRestaurants(routeSegment, 'route', referenceLatLng);
+
+                } catch (error) {
+                    handleFetchError(error, 'location');
+                }
+            } else {
+                getUserLocation(
+                    (pos) => handleSearchFromGpsPosition(pos),
+                    () => showMessage("Could not get your GPS location. Please enter your location manually.", true)
+                );
+            }
+        }
+        
+        async function handleSearchFromGpsPosition(pos) {
+             const userLatLng = L.latLng(pos.lat, pos.lng);
+            if (userMarker) map.removeLayer(userMarker);
+            userMarker = L.marker(userLatLng).addTo(map).bindPopup('<b>Your Current Location</b>').openPopup();
+            const closestPointOnRoute = findClosestPointOnRoute(userLatLng, routeCoordinates);
+            await searchAndDisplayRestaurants([closestPointOnRoute], 'route', userLatLng);
+        }
+
+        function filterRouteSegment(routeCoords, bbox) {
+            const [s, n, w, e] = bbox;
+            const segment = routeCoords.filter(coord => {
+                return coord.lat >= s && coord.lat <= n && coord.lng >= w && coord.lng <= e;
+            });
+            return segment;
+        }
+
+        function findClosestPointOnRoute(userLatLng, routeCoords) {
+            let minDistance = Infinity;
+            let closestPoint = null;
+            for (const coord of routeCoords) {
+                const distance = userLatLng.distanceTo(coord);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestPoint = coord;
+                }
+            }
+            return closestPoint;
+        }
+
+        // --- Shared Search & Display Logic ---
+        async function searchAndDisplayRestaurants(searchPoints, mode, referenceLatLng) {
+            if (!checkNetworkStatus()) return;
+            const radius = 5000;
+            const resultsLimit = parseInt(resultsSelect.value, 10);
+            
+            let searchPointsToUse = searchPoints;
+            if (searchPoints.length > 7) {
+                const interval = Math.floor(searchPoints.length / 7);
+                searchPointsToUse = searchPoints.filter((_, i) => i % interval === 0);
+            }
+            if (searchPointsToUse.length === 0 && searchPoints.length > 0) {
+                searchPointsToUse.push(searchPoints[0]);
+            }
+
+            let allPlaces = [];
+            showMessage(`Searching near ${searchPointsToUse.length} point(s)...`, false);
+            
+            try {
+                for (const point of searchPointsToUse) {
+                    const overpassQuery = `[out:json][timeout:25];(node["amenity"~"restaurant|fast_food"]["name"](around:${radius},${point.lat},${point.lng}););out body;>;out skel qt;`;
+                    try {
+                        const response = await fetchWithTimeout(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`);
+                        if (!response.ok) {
+                           console.warn(`Overpass request failed: ${response.statusText}`);
+                           continue;
+                        }
+                        const data = await response.json();
+                        allPlaces.push(...data.elements);
+                        await new Promise(resolve => setTimeout(resolve, 500)); // Delay between requests
+                    } catch (fetchError) {
+                        console.warn(`Overpass request failed for point ${point.lat},${point.lng}:`, fetchError.message);
+                        showMessage(`Some restaurant data couldn't be loaded. Continuing...`, false);
+                        continue;
+                    }
+                }
+
+                const uniquePlaces = Array.from(new Map(allPlaces.map(p => [p.id, p])).values());
+                let potentialPlaces = uniquePlaces.filter(el => el.tags && el.tags.name);
+
+                if (potentialPlaces.length === 0) {
+                     showMessage("No restaurants found in this area.", false);
+                     return;
+                }
+                
+                showMessage(`Found ${potentialPlaces.length} potential restaurants. Finding the closest ones...`, false);
+                
+                const placesWithDistance = potentialPlaces.map(place => {
+                    const location = { lat: place.lat, lng: place.lon };
+                    const distance = referenceLatLng.distanceTo(L.latLng(location.lat, location.lng));
+                    return { place, location, distance };
+                });
+
+                placesWithDistance.sort((a, b) => a.distance - b.distance);
+                const closestPlaces = placesWithDistance.slice(0, resultsLimit);
+                topPlacesList = closestPlaces.map(p => p.place);
+
+                showMessage(`Fetching details for the ${closestPlaces.length} closest restaurants...`, false);
+                
+                const detailedPlaces = [];
+                for (const item of closestPlaces) {
+                    const address = await getAddressForPlace(item.location);
+                    detailedPlaces.push({ ...item, address });
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+
+                restaurantsList.innerHTML = '';
+                restaurantMarkers.clearLayers();
+
+                if(detailedPlaces.length > 0) {
+                    geminiButtonContainer.classList.remove('hidden');
+                }
+
+                const markerBounds = L.latLngBounds();
+                if (userMarker) {
+                    markerBounds.extend(userMarker.getLatLng());
+                }
+                detailedPlaces.forEach((details, index) => {
+                    const distanceText = (details.distance / 1000).toFixed(1) + ' km away';
+                    displayRestaurant(details.place, details.location, index + 1, details.address, distanceText);
+                    const marker = createMarkerForPlace(details.place, details.location, index + 1);
+                    restaurantMarkers.addLayer(marker);
+                    markerBounds.extend(marker.getLatLng());
+                });
+
+                restaurantMarkers.addTo(map);
+                
+                if (markerBounds.isValid()) {
+                    map.fitBounds(markerBounds, { padding: [50, 50], maxZoom: 15 });
+                } else if (radiusCircle) {
+                    map.fitBounds(radiusCircle.getBounds());
+                }
+
+                showMessage(`Showing the ${detailedPlaces.length} closest restaurants.`, false);
+
+            } catch (error) {
+                handleFetchError(error, 'restaurant');
+            }
+        }
+
+        async function getAddressForPlace(location) {
+            try {
+                const response = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${location.lat}&lon=${location.lng}&zoom=18`);
+                 if (!response.ok) return 'Address lookup failed.';
+                const data = await response.json();
+                return data.display_name || 'Address details not found.';
+            } catch (error) {
+                console.warn("Address lookup failed:", error.message);
+                return 'Could not fetch address.';
+            }
+        }
+
+        function createMarkerForPlace(place, location, index) {
+            const marker = L.marker([location.lat, location.lng], { title: place.tags.name });
+            marker.bindPopup(`<b>${place.tags.name}</b>`);
+            return marker;
+        }
+
+        function createProfilePicUrl(name) {
+            const initials = name.split(' ').map(word => word[0]).join('').substring(0, 2).toUpperCase();
+            return `https://placehold.co/128x128/e0e7ff/4338ca?text=${initials}`;
+        }
+
+        function displayRestaurant(place, location, rank, address, distance) {
+            const name = place.tags.name || 'Unnamed Restaurant';
+            const profilePicUrl = createProfilePicUrl(name);
+            const card = document.createElement('div');
+            card.className = 'bg-white p-4 rounded-xl shadow-md flex items-start gap-4 transition hover:shadow-lg';
+            card.innerHTML = `
+                <div class="w-20 h-20 flex-shrink-0">
+                   <img src="${profilePicUrl}" alt="Logo for ${name}" class="w-full h-full object-cover rounded-full border-2 border-indigo-200">
+                </div>
+                <div class="flex-grow">
+                    <h3 class="text-xl font-bold text-gray-800">${name}</h3>
+                    <p class="text-gray-600 mt-1 text-sm">${address}</p>
+                    <p class="text-sm font-semibold text-indigo-600 mt-2">${distance}</p>
+                    <div class="mt-3 space-x-2">
+                        <a href="https://www.google.com/maps/search/?api=1&query=${location.lat},${location.lng}" target="_blank" rel="noopener noreferrer" class="inline-block px-3 py-1 text-xs font-semibold text-indigo-700 bg-indigo-100 rounded-full hover:bg-indigo-200 transition">View on Map</a>
+                        <a href="https://www.google.com/maps/dir/?api=1&destination=${location.lat},${location.lng}" target="_blank" rel="noopener noreferrer" class="inline-block px-3 py-1 text-xs font-semibold text-green-700 bg-green-100 rounded-full hover:bg-green-200 transition">Get Directions</a>
+                    </div>
+                </div>`;
+            restaurantsList.appendChild(card);
+        }
+
+        function clearAll() {
+            restaurantsList.innerHTML = '';
+            mapContainer.classList.add('hidden');
+            geminiButtonContainer.classList.add('hidden');
+            onRouteControls.classList.add('hidden');
+            currentLocationInput.value = '';
+            restaurantMarkers.clearLayers();
+            if (userMarker) { map.removeLayer(userMarker); userMarker = null; }
+            if (radiusCircle) { map.removeLayer(radiusCircle); radiusCircle = null; }
+            if (routingControl) { map.removeControl(routingControl); routingControl = null; }
+            topPlacesList = [];
+            routeCoordinates = [];
+        }
+
+        function showMessage(text, isError = false) {
+            messageArea.textContent = text;
+            messageArea.className = `text-center p-6 ${isError ? 'text-red-600 font-semibold' : 'text-gray-500'}`;
+        }
+        
+        // --- Gemini API Functions ---
+        function showGeminiModal() {
+            geminiResponseContent.innerHTML = '<div class="flex justify-center items-center p-8"><div class="gemini-spinner"></div></div>';
+            geminiModalOverlay.classList.remove('hidden');
+            setTimeout(() => {
+                geminiModalOverlay.classList.replace('opacity-0', 'opacity-100');
+                geminiModal.classList.replace('scale-95', 'scale-100');
+                geminiModal.classList.replace('opacity-0', 'opacity-100');
+            }, 10);
+        }
+
+        function hideGeminiModal() {
+            geminiModalOverlay.classList.replace('opacity-100', 'opacity-0');
+            geminiModal.classList.replace('scale-100', 'scale-95');
+            geminiModal.classList.replace('opacity-100', 'opacity-0');
+            setTimeout(() => {
+                geminiModalOverlay.classList.add('hidden');
+            }, 300);
+        }
+
+        async function getGeminiRecommendation() {
+            if (topPlacesList.length === 0) {
+                showMessage("No restaurants to recommend. Please perform a search first.", true);
+                return;
+            }
+            showGeminiModal();
+            const restaurantNames = topPlacesList.map(p => p.tags.name).join(', ');
+            const prompt = `I'm trying to pick a restaurant. My options are: ${restaurantNames}. Based on these names, give me a fun, one-paragraph recommendation for one of them. Suggest what kind of vibe or food I might expect to help me decide. Be creative and friendly.`;
+            const payload = { contents: [{ parts: [{ text: prompt }] }] };
+            try {
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
+                const result = await response.json();
+                const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) {
+                    geminiResponseContent.innerHTML = `<p>${text.replace(/\n/g, '<br>')}</p>`;
+                } else {
+                    throw new Error("No content received from Gemini.");
+                }
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                geminiResponseContent.innerHTML = `<p class="text-red-600">Sorry, I couldn't get a recommendation at the moment. Please check the console for errors.</p>`;
+            }
+        }
+
+        // --- Load the script on window load ---
+        window.onload = initMap;
+
+    </script>
+</body>
+</html>
